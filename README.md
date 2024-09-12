@@ -4,7 +4,7 @@
 1. Buka Visual Studio Code / Android Studio / [Project IDX](https://idx.google.com)
 2. Masukkan link github di 'Import a repo'
 ```
-https://github.com/ASNProject/bhimospeed.git
+https://github.com/ASNProject/esp32_control.git
 ```
 3. Project akan terbuka dan jalan kan perintah diterminal
 ```
