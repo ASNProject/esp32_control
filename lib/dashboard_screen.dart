@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:logger/logger.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -45,9 +48,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? bottomdistance;
   String? frontdistance;
   String? speed;
-  String? radarangle;
-  String? warning;
+  String? compass;
+  String? axisx;
+  String? axisy;
   String? status;
+  String? run;
   String? startboard;
   String? port;
 
@@ -102,7 +107,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           receivedData = String.fromCharCodes(data);
           List<String> dataList = receivedData.split(',');
-          if (dataList.length >= 14) {
+          if (dataList.length >= 16) {
             // Pastikan dataList memiliki setidaknya 14 elemen
             latitude = dataList[0];
             longitude = dataList[1];
@@ -113,15 +118,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             bottomdistance = dataList[6];
             frontdistance = dataList[7];
             speed = dataList[8];
-            radarangle = dataList[9];
-            warning = dataList[10];
-            status = dataList[11];
-            startboard = dataList[12];
-            port = dataList[13];
+            compass = dataList[9];
+            axisx = dataList[10];
+            axisy = dataList[11];
+            status = dataList[12];
+            run = dataList[13];
+            startboard = dataList[14];
+            port = dataList[15];
+            Logger().i(receivedData);
           }
         });
       });
-    } catch (e) {}
+    } catch (e) {
+      Logger().e(e.toString());
+    }
   }
 
   Future<void> _disconnectFromDevice() async {
@@ -136,20 +146,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Timer? _timer;
+  bool _isSending = false;
+
   // Fungsi untuk mengirim data ke perangkat Bluetooth
   Future<void> _sendData(String data) async {
     if (_connection != null && isConnected) {
       _connection!.output.add(Uint8List.fromList(data.codeUnits));
       await _connection!.output.allSent;
-      print('Data sent: $data');
+      Logger().i('Data sent: $data');
     } else {
-      print('No connection available');
+      Logger().i('No connection available');
+    }
+  }
+
+  void _startSendingData(String data) {
+    if (!_isSending) {
+      _isSending = true;
+      _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+        if (_isSending) {
+          _sendData(data); // Kirim data huruf besar secara terus-menerus
+        }
+      });
+    }
+  }
+
+  void _stopSendingData(String data) {
+    if (_isSending) {
+      _isSending = false;
+      _timer?.cancel();
+      _sendData(data.toLowerCase());
     }
   }
 
   @override
   void dispose() {
-    _disconnectFromDevice(); // Memutuskan koneksi saat widget dihapus
+    _disconnectFromDevice();
     super.dispose();
   }
 
@@ -158,7 +190,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'ESP32 Control',
+          'BOAT CONTROL',
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
@@ -276,8 +308,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         _buildRowWidget(
                           'Speed (km/h)',
                           speed ?? '0',
-                          'Radar Angle',
-                          radarangle ?? '0',
+                          'Compass',
+                          compass ?? '0',
+                        ),
+                        const SizedBox(
+                          height: 4,
+                        ),
+                        _buildRowWidget(
+                          'Axis X',
+                          axisx ?? '0',
+                          'Axis Y',
+                          axisy ?? '0',
                         ),
                         const SizedBox(
                           height: 4,
@@ -285,7 +326,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Container(
                           width: double.infinity,
                           decoration: BoxDecoration(
-                            color: Colors.lightBlueAccent,
+                            color: Colors.red,
                             border: Border.all(
                               color: Colors.black12,
                             ),
@@ -296,16 +337,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           child: Column(
                             children: [
                               const Text(
-                                'Warning',
+                                'Status',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
+                                  color: Colors.white,
                                 ),
                               ),
                               Text(
-                                warning ?? '-',
+                                status ?? '-',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
+                                  color: Colors.white,
                                 ),
                               ),
                             ],
@@ -328,13 +371,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           child: Column(
                             children: [
                               const Text(
-                                'Status',
+                                'Run',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                               Text(
-                                status ?? '-',
+                                run ?? '-',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
@@ -501,15 +544,142 @@ class _DashboardScreenState extends State<DashboardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
+            Column(
+              children: [
+                const SizedBox(
+                  height: 10,
+                ),
+                SizedBox(
+                  width: 100,
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('A');
+                    },
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'a'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'a'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {
+                        // _sendData('a');
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        'ANCHOR L',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             _buildIndicator(
-              'STANDBOARD',
+              'STARBOARD',
               startboard ?? '0',
+              Colors.red,
+            ),
+            Column(
+              children: [
+                const SizedBox(
+                  height: 10,
+                ),
+                SizedBox(
+                  width: 100,
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('B');
+                    },
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'b'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'b'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {
+                        // _sendData('a');
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        'STARBOARD',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(
+          height: 4,
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              children: [
+                const SizedBox(
+                  height: 10,
+                ),
+                SizedBox(
+                  width: 100,
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('C');
+                    },
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'c'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'c'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {
+                        // _sendData('a');
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        'ANCHOR R',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
             _buildIndicator(
               'PORT',
               port ?? '0',
+              Colors.green,
             ),
             Column(
               children: [
@@ -518,45 +688,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#a');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('D');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      'STARTBOARD',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'd'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'd'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {
+                        // _sendData('a');
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
                       ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            Column(
-              children: [
-                const SizedBox(
-                  height: 10,
-                ),
-                SizedBox(
-                  width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#b');
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      'PORT',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                      child: const Text(
+                        'PORT',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -569,7 +726,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           height: 4,
         ),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Column(
               children: [
@@ -578,19 +735,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#c');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('E');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      'FORWARD1',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'e'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'e'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        'STOP',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -604,19 +772,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#d');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('F');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      'FORWARD2',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'f'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'f'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        'FORWARD 1',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -630,19 +809,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#e');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('G');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      'FORWARD3',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'g'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'g'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        'BACK 1',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -655,7 +845,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           height: 4,
         ),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Column(
               children: [
@@ -664,19 +854,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#f');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('H');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      'STOP',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'h'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'h'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        '5',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -690,19 +891,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#g');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('I');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      'BACK1',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'i'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'i'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        'FORWARD 2',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -716,19 +928,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#h');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('J');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      'BACK2',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'j'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'j'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        'BACK 2',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -741,7 +964,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           height: 4,
         ),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Column(
               children: [
@@ -750,19 +973,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#i');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('K');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      'BACK3',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'k'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'k'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        '15°',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -776,19 +1010,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#j');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('L');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      '5°',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'l'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'l'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        'FORWARD 3',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -802,19 +1047,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#k');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('M');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      '15°',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'm'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'm'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        'BACK 3',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -827,7 +1083,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           height: 4,
         ),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Column(
               children: [
@@ -836,19 +1092,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#l');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('N');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      '25°',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'n'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'n'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        '25°',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -862,19 +1129,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#m');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('O');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      '35°',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'o'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'o'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        '35°',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -888,19 +1166,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 SizedBox(
                   width: 100,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _sendData('#n');
+                  child: GestureDetector(
+                    onTapDown: (_) {
+                      _startSendingData('P');
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          Colors.amber, // Ganti dengan warna yang diinginkan
-                    ),
-                    child: const Text(
-                      '45°',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 8,
+                    onTapUp: (_) {
+                      _stopSendingData(
+                          'p'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    onTapCancel: () {
+                      _stopSendingData(
+                          'p'); // Kirim huruf kecil ketika tombol dilepas
+                    },
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Colors.amber, // Ganti dengan warna yang diinginkan
+                      ),
+                      child: const Text(
+                        '45°',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 8,
+                        ),
                       ),
                     ),
                   ),
@@ -908,6 +1197,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
           ],
+        ),
+        const SizedBox(
+          height: 4,
         ),
       ],
     );
@@ -916,6 +1208,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   _buildIndicator(
     String title,
     String value,
+    Color color,
   ) {
     return Column(
       children: [
@@ -930,8 +1223,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           height: 40,
           width: 40,
           decoration: BoxDecoration(
+            border: Border.all(
+              color: Colors.black12,
+            ),
             shape: BoxShape.circle,
-            color: value == '1' ? Colors.green : Colors.red,
+            color: value == '1' ? color : Colors.white,
           ),
         )
       ],
