@@ -19,3 +19,5 @@ flutter run
 ```
 flutter build apk --release
 ```
+
+Link Tutorial: https://youtu.be/IUPXxilMCAY
